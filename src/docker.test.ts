@@ -110,6 +110,7 @@ describe("Docker images", (): void => {
             "Listing Docker images.",
           );
           expect(util.execBashCommand).nthCalledWith<[string]>(1, LIST_COMMAND);
+          expect(core.getMultilineInput).lastCalledWith("filter");
         }
       }
     }
@@ -122,6 +123,7 @@ describe("Docker images", (): void => {
     prevSave: boolean,
     preexistingImages: string[],
     newImages: string[],
+    filterPatterns: string[] = [],
   ): Promise<void> => {
     core.getInput.mockReturnValueOnce(key);
     core.getState.mockReturnValueOnce(cacheHit.toString());
@@ -135,6 +137,7 @@ describe("Docker images", (): void => {
           core.getState.mockReturnValueOnce(preexistingImages.join("\n"));
           const images = preexistingImages.concat(newImages);
           util.execBashCommand.mockResolvedValueOnce(images.join("\n"));
+          core.getMultilineInput.mockReturnValueOnce(filterPatterns);
         }
       }
     }
@@ -200,6 +203,7 @@ describe("Docker images", (): void => {
       core.getInput,
       core.getState,
       util.execBashCommand,
+      core.getMultilineInput,
       util.execBashCommand,
       cache.saveCache,
     );
@@ -303,4 +307,75 @@ describe("Docker images", (): void => {
       ],
     },
   );
+
+  test("filter matches subset of new images", async (): Promise<void> => {
+    jest.clearAllMocks();
+    const preexisting = ["base:latest"];
+    const newImages = ["nginx:latest", "redis:7", "myapp:v1"];
+    const filterPatterns = ["nginx:*", "myapp:*"];
+    await mockedSaveDockerImages(
+      "my-key",
+      false,
+      false,
+      false,
+      preexisting,
+      newImages,
+      filterPatterns,
+    );
+
+    const expectedFiltered = ["nginx:latest", "myapp:v1"];
+    expect(util.execBashCommand).lastCalledWith(
+      `docker save --output ${docker.DOCKER_IMAGES_PATH} ${expectedFiltered.join(" ")}`,
+    );
+    expect(cache.saveCache).lastCalledWith([docker.DOCKER_IMAGES_PATH], "my-key");
+  });
+
+  test("filter matches no new images", async (): Promise<void> => {
+    jest.clearAllMocks();
+    const preexisting = ["base:latest"];
+    const newImages = ["nginx:latest", "redis:7"];
+    const filterPatterns = ["myapp:*"];
+    await mockedSaveDockerImages(
+      "my-key",
+      false,
+      false,
+      false,
+      preexisting,
+      newImages,
+      filterPatterns,
+    );
+
+    expect(core.info).lastCalledWith("No Docker images to save");
+    expect(util.execBashCommand).toHaveBeenCalledTimes(1);
+    expect(cache.saveCache).not.toHaveBeenCalled();
+  });
+
+  test("no filter caches all new images", async (): Promise<void> => {
+    jest.clearAllMocks();
+    const preexisting = ["base:latest"];
+    const newImages = ["nginx:latest", "redis:7"];
+    await mockedSaveDockerImages(
+      "my-key",
+      false,
+      false,
+      false,
+      preexisting,
+      newImages,
+      [],
+    );
+
+    expect(util.execBashCommand).lastCalledWith(
+      `docker save --output ${docker.DOCKER_IMAGES_PATH} ${newImages.join(" ")}`,
+    );
+    expect(cache.saveCache).lastCalledWith([docker.DOCKER_IMAGES_PATH], "my-key");
+  });
+
+  test("matchesFilter correctly matches glob patterns", (): void => {
+    expect(docker.matchesFilter("nginx:latest", ["nginx:*"])).toBe(true);
+    expect(docker.matchesFilter("nginx:1.25", ["nginx:*"])).toBe(true);
+    expect(docker.matchesFilter("redis:7", ["nginx:*"])).toBe(false);
+    expect(docker.matchesFilter("redis:7", ["nginx:*", "redis:*"])).toBe(true);
+    expect(docker.matchesFilter("myregistry.io/app:v1", ["myregistry.io/**"])).toBe(true);
+    expect(docker.matchesFilter("other.io/app:v1", ["myregistry.io/**"])).toBe(false);
+  });
 });

@@ -67,6 +67,8 @@ describe("Integration Test", (): void => {
     core.saveState.mockImplementation((key: string, value: ToString): void => {
       state.set(key, value.toString());
     });
+
+    core.getMultilineInput.mockReturnValue([]);
   });
 
   const joinOutput = (stdout: string[], stderr: string): ConsoleOutput => ({

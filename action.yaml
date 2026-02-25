@@ -15,6 +15,12 @@ inputs:
     description: If "true", disables saving the cache upon cache miss
     required: false
     default: "false"
+  filter:
+    description: >
+      Newline-separated list of glob patterns. Only Docker images matching at
+      least one pattern will be cached. If omitted, all new images are cached.
+    required: false
+    default: ""
 outputs:
   cache-hit:
     description: >

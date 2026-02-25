@@ -1,5 +1,13 @@
 import { restoreCache, saveCache } from "@actions/cache";
-import { getInput, getState, info, saveState, setOutput } from "@actions/core";
+import {
+  getInput,
+  getMultilineInput,
+  getState,
+  info,
+  saveState,
+  setOutput,
+} from "@actions/core";
+import { minimatch } from "minimatch";
 
 import { execBashCommand } from "./util.js";
 
@@ -10,6 +18,9 @@ const LIST_COMMAND =
   "docker image list --format '" +
   '{{ if ne .Repository "<none>" }}{{ .Repository }}' +
   `{{ if ne .Tag "<none>" }}:{{ .Tag }}{{ end }}{{ else }}{{ .ID }}{{ end }}'`;
+
+const matchesFilter = (image: string, patterns: string[]): boolean =>
+  patterns.some((pattern: string): boolean => minimatch(image, pattern));
 
 const loadDockerImages = async (): Promise<void> => {
   const requestedKey = getInput("key", { required: true });
@@ -57,14 +68,21 @@ const saveDockerImages = async (): Promise<void> => {
     const newImages = imagesList.filter(
       (image: string): boolean => !preexistingImages.includes(image),
     );
-    if (newImages.length === 0) {
+    const filterPatterns = getMultilineInput("filter");
+    const filteredImages =
+      filterPatterns.length > 0
+        ? newImages.filter((img: string): boolean =>
+            matchesFilter(img, filterPatterns),
+          )
+        : newImages;
+    if (filteredImages.length === 0) {
       info("No Docker images to save");
     } else {
       info(
         "Images present before restore step will be skipped; only new images " +
           "will be saved.",
       );
-      const newImagesArgs = newImages.join(" ");
+      const newImagesArgs = filteredImages.join(" ");
       const cmd = `docker save --output ${DOCKER_IMAGES_PATH} ${newImagesArgs}`;
       await execBashCommand(cmd);
       await saveCache([DOCKER_IMAGES_PATH], key);
@@ -75,6 +93,7 @@ const saveDockerImages = async (): Promise<void> => {
 export {
   saveDockerImages,
   loadDockerImages,
+  matchesFilter,
   CACHE_HIT,
   DOCKER_IMAGES_LIST,
   DOCKER_IMAGES_PATH,
